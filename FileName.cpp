@@ -642,12 +642,12 @@ vector<ScheduleItem> generateSchedule() {
     string startDate;
     getline(cin, startDate);
 
-    cout << "\nEnter number of time slots per day (1-4): ";
+    cout << "\nEnter number of time slots per day (1-10): ";
     int timeSlotsPerDay;
-    while (!(cin >> timeSlotsPerDay) || timeSlotsPerDay < 1 || timeSlotsPerDay > 4) {
+    while (!(cin >> timeSlotsPerDay) || timeSlotsPerDay < 1 || timeSlotsPerDay > 10) {
         cin.clear();
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        cout << "Invalid! Enter 1-4: ";
+        cout << "Invalid! Enter 1-10: ";
     }
 
     cout << "\n=== Exam Rooms ===" << endl;
@@ -1751,11 +1751,30 @@ void exportScheduleToCSV() {
         path = path.substr(0, path.size() - 1);
     }
 
-    ofstream file(path);
+    ofstream file(path, ios::binary);
     if (!file.is_open()) {
         cout << "Cannot create file! path: " << path << endl;
         return;
     }
+
+    file << "\xEF\xBB\xBF";
+
+    auto gbkToUtf8 = [](const string& gbk) -> string {
+        int len = MultiByteToWideChar(CP_ACP, 0, gbk.c_str(), -1, NULL, 0);
+        if (len == 0) return gbk;
+        wchar_t* wstr = new wchar_t[len];
+        MultiByteToWideChar(CP_ACP, 0, gbk.c_str(), -1, wstr, len);
+        
+        len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+        if (len == 0) { delete[] wstr; return gbk; }
+        char* utf8 = new char[len];
+        WideCharToMultiByte(CP_UTF8, 0, wstr, -1, utf8, len, NULL, NULL);
+        
+        string result(utf8);
+        delete[] wstr;
+        delete[] utf8;
+        return result;
+    };
 
     file << "SubjectCode,SubjectName,ExamDate,TimeSlot,RoomName,RoomType,StudentID,StudentName,Campus,Department,Major,ClassName,CourseCollege,CourseUnit" << endl;
 
@@ -1768,20 +1787,20 @@ void exportScheduleToCSV() {
             [&](const Student& st) { return st.id == schedule.studentId; });
 
         if (subIt != subjects.end() && roomIt != rooms.end() && studentIt != students.end()) {
-            file << subIt->code << ","
-                << subIt->name << ","
-                << schedule.examDate << ","
-                << schedule.timeSlot << ","
-                << roomIt->name << ","
+            file << gbkToUtf8(subIt->code) << ","
+                << gbkToUtf8(subIt->name) << ","
+                << gbkToUtf8(schedule.examDate) << ","
+                << gbkToUtf8(schedule.timeSlot) << ","
+                << gbkToUtf8(roomIt->name) << ","
                 << (roomIt->type == "lab" ? "Lab" : "Regular") << ","
-                << studentIt->studentId << ","
-                << studentIt->name << ","
-                << studentIt->campus << ","
-                << studentIt->department << ","
-                << studentIt->major << ","
-                << studentIt->className << ","
-                << studentIt->courseCollege << ","
-                << studentIt->courseUnit << endl;
+                << gbkToUtf8(studentIt->studentId) << ","
+                << gbkToUtf8(studentIt->name) << ","
+                << gbkToUtf8(studentIt->campus) << ","
+                << gbkToUtf8(studentIt->department) << ","
+                << gbkToUtf8(studentIt->major) << ","
+                << gbkToUtf8(studentIt->className) << ","
+                << gbkToUtf8(studentIt->courseCollege) << ","
+                << gbkToUtf8(studentIt->courseUnit) << "\n";
         }
     }
 
@@ -1801,11 +1820,13 @@ void exportScheduleToCSV() {
     cout << "[LOG] Excel file will be saved to: " << excelPath << endl;
     cout << "[LOG] Generating Excel file..." << endl;
 
-    ofstream excelFile(excelPath);
+    ofstream excelFile(excelPath, ios::binary);
     if (!excelFile.is_open()) {
         cout << "[ERROR] Cannot create Excel file!" << endl;
         return;
     }
+
+    excelFile << "\xEF\xBB\xBF";
 
     excelFile << "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\" ";
     excelFile << "xmlns:x=\"urn:schemas-microsoft-com:office:excel\">" << endl;
@@ -1821,54 +1842,72 @@ void exportScheduleToCSV() {
     excelFile << "</head>" << endl;
     excelFile << "<body>" << endl;
 
-    excelFile << "<table>" << endl;
-    excelFile << "<tr><th colspan=\"14\">Exam Schedule</th></tr>" << endl;
-    excelFile << "<tr>" << endl;
-    excelFile << "<th>Subject Code</th>" << endl;
-    excelFile << "<th>Subject Name</th>" << endl;
-    excelFile << "<th>Exam Date</th>" << endl;
-    excelFile << "<th>Time Slot</th>" << endl;
-    excelFile << "<th>Room Name</th>" << endl;
-    excelFile << "<th>Room Type</th>" << endl;
-    excelFile << "<th>Student ID</th>" << endl;
-    excelFile << "<th>Student Name</th>" << endl;
-    excelFile << "<th>Campus</th>" << endl;
-    excelFile << "<th>Department</th>" << endl;
-    excelFile << "<th>Major</th>" << endl;
-    excelFile << "<th>Class</th>" << endl;
-    excelFile << "<th>Course College</th>" << endl;
-    excelFile << "<th>Course Unit</th>" << endl;
-    excelFile << "</tr>" << endl;
+    map<string, map<string, map<string, vector<const ScheduleItem*>>>> groupedSchedules;
 
     for (const auto& schedule : schedules) {
-        auto subIt = find_if(subjects.begin(), subjects.end(),
-            [&](const Subject& sb) { return sb.id == schedule.subjectId; });
-        auto roomIt = find_if(rooms.begin(), rooms.end(),
-            [&](const Room& rm) { return rm.id == schedule.roomId; });
-        auto studentIt = find_if(students.begin(), students.end(),
-            [&](const Student& st) { return st.id == schedule.studentId; });
-
-        if (subIt != subjects.end() && roomIt != rooms.end() && studentIt != students.end()) {
-            excelFile << "<tr>" << endl;
-            excelFile << "<td>" << subIt->code << "</td>" << endl;
-            excelFile << "<td>" << subIt->name << "</td>" << endl;
-            excelFile << "<td>" << schedule.examDate << "</td>" << endl;
-            excelFile << "<td>" << schedule.timeSlot << "</td>" << endl;
-            excelFile << "<td>" << roomIt->name << "</td>" << endl;
-            excelFile << "<td>" << (roomIt->type == "lab" ? "Lab" : "Regular") << "</td>" << endl;
-            excelFile << "<td>" << studentIt->studentId << "</td>" << endl;
-            excelFile << "<td>" << studentIt->name << "</td>" << endl;
-            excelFile << "<td>" << studentIt->campus << "</td>" << endl;
-            excelFile << "<td>" << studentIt->department << "</td>" << endl;
-            excelFile << "<td>" << studentIt->major << "</td>" << endl;
-            excelFile << "<td>" << studentIt->className << "</td>" << endl;
-            excelFile << "<td>" << studentIt->courseCollege << "</td>" << endl;
-            excelFile << "<td>" << studentIt->courseUnit << "</td>" << endl;
-            excelFile << "</tr>" << endl;
-        }
+        groupedSchedules[schedule.examDate][schedule.timeSlot][schedule.roomId].push_back(&schedule);
     }
 
-    excelFile << "</table>" << endl;
+    for (const auto& datePair : groupedSchedules) {
+        const string& examDate = datePair.first;
+        
+        for (const auto& timePair : datePair.second) {
+            const string& timeSlot = timePair.first;
+            
+            for (const auto& roomPair : timePair.second) {
+                const string& roomId = roomPair.first;
+                const vector<const ScheduleItem*>& roomSchedules = roomPair.second;
+                
+                auto roomIt = find_if(rooms.begin(), rooms.end(),
+                    [&](const Room& rm) { return rm.id == roomId; });
+                
+                excelFile << "<table>" << endl;
+                excelFile << "<tr><th colspan=\"9\" style=\"background-color:#4472C4;color:white;font-size:14px;padding:10px;\">";
+                excelFile << gbkToUtf8(examDate) << " | " << gbkToUtf8(timeSlot) << " | ";
+                excelFile << (roomIt != rooms.end() ? gbkToUtf8(roomIt->name) : roomId);
+                if (roomIt != rooms.end()) {
+                    excelFile << " (" << (roomIt->type == "lab" ? "Lab" : "Regular") << ")";
+                }
+                excelFile << "</th></tr>" << endl;
+                
+                excelFile << "<tr>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Subject</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Student ID</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Student Name</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Campus</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Department</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Major</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Class</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Course College</th>" << endl;
+                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Course Unit</th>" << endl;
+                excelFile << "</tr>" << endl;
+
+                for (const ScheduleItem* schedule : roomSchedules) {
+                    auto subIt = find_if(subjects.begin(), subjects.end(),
+                        [&](const Subject& sb) { return sb.id == schedule->subjectId; });
+                    auto studentIt = find_if(students.begin(), students.end(),
+                        [&](const Student& st) { return st.id == schedule->studentId; });
+
+                    if (subIt != subjects.end() && studentIt != students.end()) {
+                        excelFile << "<tr>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(subIt->name) << "</td>" << endl;
+                        excelFile << "<td style=\"mso-number-format:\\#\">" << studentIt->studentId << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->name) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->campus) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->department) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->major) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->className) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->courseCollege) << "</td>" << endl;
+                        excelFile << "<td>" << gbkToUtf8(studentIt->courseUnit) << "</td>" << endl;
+                        excelFile << "</tr>" << endl;
+                    }
+                }
+
+                excelFile << "</table>" << endl;
+                excelFile << "<p>&nbsp;</p>" << endl;
+            }
+        }
+    }
     excelFile << "</body>" << endl;
     excelFile << "</html>" << endl;
 
