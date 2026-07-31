@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>补考考场智能排考系统 | Web管理端</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            secondary: '#0FC6C2',
+            warn: '#FF7D00',
+            danger: '#F53F3F',
+            grayBg: '#F2F3F5',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 侧边栏滚动美化 */
+    .sidebar::-webkit-scrollbar {width:4px}
+    .sidebar::-webkit-scrollbar-thumb {background:#dcdcdc;border-radius:2px}
+    /* 表格固定表头 */
+    .table-wrap {max-height:60vh;overflow:auto}
+    table thead tr th {position:sticky;top:0;z-index:10}
+  </style>
+</head>
+<body class="bg-grayBg h-screen flex overflow-hidden">
+  <!-- 左侧侧边导航 -->
+  <aside class="sidebar w-60 bg-white shadow flex-shrink-0 overflow-y-auto">
+    <div class="p-4 border-b">
+      <h1 class="text-lg font-bold text-primary flex items-center gap-2">
+        <i class="fa fa-calendar-check-o text-xl"></i>补考排考系统
+      </h1>
+      <p class="text-xs text-gray-400 mt-1">智能考场分配管理平台</p>
+    </div>
+    <nav class="p-2">
+      <div class="nav-group">
+        <div class="nav-title text-gray-500 text-xs px-3 py-2">数据管理</div>
+        <div onclick="switchPage('dashboard')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="dashboard">
+          <i class="fa fa-dashboard w-5 text-center"></i>仪表盘
+        </div>
+        <div onclick="switchPage('student')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="student">
+          <i class="fa fa-users w-5 text-center"></i>学生管理/导入
+        </div>
+        <div onclick="switchPage('subject')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="subject">
+          <i class="fa fa-book w-5 text-center"></i>科目管理
+        </div>
+        <div onclick="switchPage('room')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="room">
+          <i class="fa fa-home w-5 text-center"></i>考场教室管理
+        </div>
+      </div>
+      <div class="nav-group mt-4">
+        <div class="nav-title text-gray-500 text-xs px-3 py-2">排考核心功能</div>
+        <div onclick="switchPage('genSchedule')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="genSchedule">
+          <i class="fa fa-magic w-5 text-center"></i>一键生成排班
+        </div>
+        <div onclick="switchPage('viewSchedule')" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary page-item" data-page="viewSchedule">
+          <i class="fa fa-table w-5 text-center"></i>查看排班结果
+        </div>
+        <div onclick="exportFile()" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary">
+          <i class="fa fa-download w-5 text-center"></i>导出Excel/CSV
+        </div>
+      </div>
+      <div class="nav-group mt-4">
+        <div class="nav-title text-gray-500 text-xs px-3 py-2">测试工具</div>
+        <div onclick="loadMockData()" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary">
+          <i class="fa fa-flask w-5 text-center"></i>加载模拟测试数据
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <div id="confirmModal" class="fixed inset-0 bg-black/30 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-80 p-5">
+      <div class="text-lg font-bold mb-3 text-gray-800">确认操作</div>
+      <div id="confirmMessage" class="text-sm text-gray-600 mb-5">确定继续吗？</div>
+      <div class="flex justify-end gap-3">
+        <button id="confirmCancel" class="px-4 py-2 rounded border bg-gray-100 text-gray-700 hover:bg-gray-200">取消</button>
+        <button id="confirmOk" class="px-4 py-2 rounded bg-red-500 text-white hover:bg-red-600">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主内容区域 -->
+  <main class="flex-1 overflow-y-auto p-6">
+    <!-- 1. 仪表盘首页 -->
+    <div class="page" id="page-dashboard">
+      <h2 class="text-xl font-bold mb-6">系统数据总览</h2>
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white p-5 rounded shadow">
+          <div class="text-gray-400 text-sm">在读补考学生</div>
+          <div class="text-3xl font-bold text-primary mt-1" id="stuCount">0</div>
+        </div>
+        <div class="bg-white p-5 rounded shadow">
+          <div class="text-gray-400 text-sm">考试科目总数</div>
+          <div class="text-3xl font-bold text-secondary mt-1" id="subCount">0</div>
+        </div>
+        <div class="bg-white p-5 rounded shadow">
+          <div class="text-gray-400 text-sm">可用考场</div>
+          <div class="text-3xl font-bold text-warn mt-1" id="roomCount">0</div>
+        </div>
+        <div class="bg-white p-5 rounded shadow">
+          <div class="text-gray-400 text-sm">已生成排班记录</div>
+          <div class="text-3xl font-bold text-danger mt-1" id="schCount">0</div>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded shadow">
+        <h3 class="font-bold mb-3">使用说明</h3>
+        <ul class="text-gray-600 space-y-2 text-sm">
+          <li>1. 先导入学生CSV文件，系统自动识别补考科目并创建科目数据</li>
+          <li>2. 维护考场教室：普通笔试教室40~90人，机房机考20~70人</li>
+          <li>3. 进入【一键生成排班】，填写考试起止日期、教室数量自动分配考场</li>
+          <li>4. 支持4种排班视图：按时间/教室/学生/科目查看，支持导出Excel报表</li>
+          <li>5. 约束校验：同学生同时仅一门考试；机考笔试考场隔离；单考场人数合规</li>
+        </ul>
+      </div>
+      <div class="mt-6 flex justify-end gap-3 flex-wrap">
+        <button onclick="exportBackup()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+          <i class="fa fa-download mr-1"></i>导出备份
+        </button>
+        <label class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 cursor-pointer">
+          <input type="file" id="backupFile" accept=".json" class="hidden" onchange="restoreBackup()">
+          <i class="fa fa-upload mr-1"></i>恢复备份
+        </label>
+        <button onclick="resetAllData()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+          <i class="fa fa-trash mr-1"></i>清空数据
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. 学生管理&CSV导入页面 -->
+    <div class="page hidden" id="page-student">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">学生批量导入与管理</h2>
+      </div>
+      <div class="bg-white p-5 rounded shadow mb-5">
+        <h3 class="font-bold mb-3">CSV文件批量导入学生</h3>
+        <p class="text-sm text-gray-500 mb-3">CSV格式：StudentID,Name,Campus,Department,Major,ClassName,CourseCode,CourseName,IsLabExam</p>
+        <div class="flex gap-3 items-center">
+          <input type="file" id="csvFile" accept=".csv" class="border p-2 rounded flex-1">
+          <button onclick="uploadCsv()" class="bg-primary text-white px-4 py-2 rounded hover:bg-primary/90">
+            <i class="fa fa-upload mr-1"></i>上传导入
+          </button>
+        </div>
+        <div class="mt-3 text-sm text-gray-600" id="uploadLog"></div>
+      </div>
+      <div class="bg-white rounded shadow table-wrap">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="border p-2 w-12">序号</th>
+              <th class="border p-2">学号</th>
+              <th class="border p-2">姓名</th>
+              <th class="border p-2">学院专业班级</th>
+              <th class="border p-2">补考科目</th>
+            </tr>
+          </thead>
+          <tbody id="studentTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. 科目管理页面 -->
+    <div class="page hidden" id="page-subject">
+      <h2 class="text-xl font-bold mb-4">考试科目管理（区分笔试/机考）</h2>
+      <div class="bg-white rounded shadow table-wrap mb-4">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="border p-2 w-12">ID</th>
+              <th class="border p-2">科目代码</th>
+              <th class="border p-2">科目名称</th>
+              <th class="border p-2">考试类型</th>
+            </tr>
+          </thead>
+          <tbody id="subjectTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. 考场教室管理 -->
+    <div class="page hidden" id="page-room">
+      <h2 class="text-xl font-bold mb-4">考场教室管理</h2>
+      <div class="bg-white rounded shadow table-wrap mb-4">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="border p-2">教室编号</th>
+              <th class="border p-2">教室名称</th>
+              <th class="border p-2">类型</th>
+              <th class="border p-2">容量限制</th>
+            </tr>
+          </thead>
+          <tbody id="roomTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. 生成排班页面 -->
+    <div class="page hidden" id="page-genSchedule">
+      <h2 class="text-xl font-bold mb-4">智能生成补考排班</h2>
+      <div class="bg-white p-6 rounded shadow max-w-2xl">
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">考试起始日期（YYYY-MM-DD）</label>
+          <input type="date" id="startDate" class="border w-full p-2 rounded">
+        </div>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">每日时段数量（1~4）</label>
+          <select id="slotPerDay" class="border w-full p-2 rounded">
+            <option value="2">2个时段/天</option>
+            <option value="3">3个时段/天</option>
+            <option value="4">4个时段/天</option>
+          </select>
+        </div>
+        <div class="mb-4 grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">笔试普通教室数量</label>
+            <input type="number" min="1" value="3" id="regularRoomNum" class="border w-full p-2 rounded">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">机考机房数量</label>
+            <input type="number" min="0" value="2" id="labRoomNum" class="border w-full p-2 rounded">
+          </div>
+        </div>
+        <button onclick="createSchedule()" class="bg-primary text-white w-full py-3 rounded text-lg hover:bg-primary/90">
+          <i class="fa fa-cogs mr-2"></i>自动生成排班（校验全部约束）
+        </button>
+        <div class="mt-4 text-sm text-gray-600" id="genLog"></div>
+      </div>
+    </div>
+
+    <!-- 6. 查看排班结果页面 -->
+    <div class="page hidden" id="page-viewSchedule">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">排班结果查询</h2>
+        <div class="flex gap-2">
+          <button onclick="loadSchedule(1)" class="border px-3 py-1 rounded hover:bg-gray-100">按时间查看</button>
+          <button onclick="loadSchedule(2)" class="border px-3 py-1 rounded hover:bg-gray-100">按教室查看</button>
+          <button onclick="loadSchedule(3)" class="border px-3 py-1 rounded hover:bg-gray-100">按学生查看</button>
+          <button onclick="loadSchedule(4)" class="border px-3 py-1 rounded hover:bg-gray-100">按科目查看</button>
+        </div>
+      </div>
+      <div class="bg-white p-4 rounded shadow table-wrap" id="scheduleResultBox">
+        <div class="text-gray-400 text-center py-10">请选择上方视图加载排班数据</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // ==================== 全局配置 ====================
+    const API_BASE = "http://127.0.0.1:8080/api"; // C++后端服务地址
+    let currentPage = "dashboard";
+    let backendAlertShown = false;
+    let retryTimer = null;
+
+    function showBackendAlert() {
+      if (!backendAlertShown) {
+        backendAlertShown = true;
+        alert("后端服务连接失败，请确认后端已启动并开启8080端口");
+      }
+    }
+
+    function scheduleRetry() {
+      if (retryTimer) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (currentPage === "dashboard") refreshDashboard();
+        if (currentPage === "student") getStudentList();
+        if (currentPage === "subject") getSubjectList();
+        if (currentPage === "room") getRoomList();
+      }, 2000);
+    }
+
+    function showConfirmDialog(message, onConfirm) {
+      const modal = document.getElementById('confirmModal');
+      const msg = document.getElementById('confirmMessage');
+      const okBtn = document.getElementById('confirmOk');
+      const cancelBtn = document.getElementById('confirmCancel');
+
+      msg.textContent = message;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+
+      const handleConfirm = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        onConfirm();
+        okBtn.onclick = null;
+        cancelBtn.onclick = null;
+      };
+
+      const handleCancel = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        okBtn.onclick = null;
+        cancelBtn.onclick = null;
+      };
+
+      okBtn.onclick = handleConfirm;
+      cancelBtn.onclick = handleCancel;
+    }
+
+    // 页面切换控制
+    function switchPage(pageName) {
+      // 隐藏所有页面
+      document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
+      // 显示目标页面
+      document.getElementById(`page-${pageName}`).classList.remove("hidden");
+      currentPage = pageName;
+      // 切换后自动刷新对应数据
+      if(pageName === "dashboard") refreshDashboard();
+      if(pageName === "student") getStudentList();
+      if(pageName === "subject") getSubjectList();
+      if(pageName === "room") getRoomList();
+    }
+
+    // ==================== 接口请求封装 ====================
+    async function request(url, opt={}) {
+      try {
+        const res = await fetch(`${API_BASE}${url}`, opt);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        backendAlertShown = false;
+        return data;
+      } catch (err) {
+        showBackendAlert();
+        scheduleRetry();
+        console.error(err);
+        return null;
+      }
+    }
+
+    // 1. 仪表盘统计数据
+    async function refreshDashboard() {
+      const sub = await request("/subject/list");
+      const stu = await request("/student/list");
+      const room = await request("/room/list");
+      document.getElementById("stuCount").innerText = stu?.data?.length || 0;
+      document.getElementById("subCount").innerText = sub?.data?.length || 0;
+      document.getElementById("roomCount").innerText = room?.data?.length || 0;
+      document.getElementById("schCount").innerText = "已生成";
+    }
+
+    // 2. 学生相关
+    async function uploadCsv() {
+      const fileDom = document.getElementById("csvFile");
+      const file = fileDom.files[0];
+      if(!file) return alert("请选择CSV文件");
+      const form = new FormData();
+      form.append("csv", file);
+      const res = await request("/student/importCsv", {
+        method:"POST", body:form
+      });
+      document.getElementById("uploadLog").innerText = res?.msg || "导入完成";
+      getStudentList();
+    }
+    async function getStudentList() {
+      const res = await request("/student/list");
+      const tbody = document.getElementById("studentTableBody");
+      tbody.innerHTML = "";
+      res.data.forEach((item, idx)=>{
+        let subNameStr = "";
+        // 简化展示科目
+        tbody.innerHTML += `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center">${idx+1}</td>
+            <td class="border p-2">${item.studentId}</td>
+            <td class="border p-2">${item.name}</td>
+            <td class="border p-2">${item.department}-${item.major}-${item.className}</td>
+            <td class="border p-2">${item.subjectIds.join(",")}</td>
+          </tr>
+        `
+      })
+    }
+
+    // 3. 科目列表
+    async function getSubjectList() {
+      const res = await request("/subject/list");
+      const tbody = document.getElementById("subjectTableBody");
+      tbody.innerHTML = "";
+      res.data.forEach(item=>{
+        const type = item.isLabRequired ? "机考(机房)" : "笔试(普通教室)";
+        tbody.innerHTML += `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2">${item.id}</td>
+            <td class="border p-2">${item.code}</td>
+            <td class="border p-2">${item.name}</td>
+            <td class="border p-2">${type}</td>
+          </tr>
+        `
+      })
+    }
+
+    // 4. 教室列表
+    async function getRoomList() {
+      const res = await request("/room/list");
+      const tbody = document.getElementById("roomTableBody");
+      tbody.innerHTML = "";
+      res.data.forEach(item=>{
+        const typeText = item.type==="lab" ? "机房(机考)" : "普通教室(笔试)";
+        tbody.innerHTML += `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2">${item.id}</td>
+            <td class="border p-2">${item.name}</td>
+            <td class="border p-2">${typeText}</td>
+            <td class="border p-2">${item.capacity}人</td>
+          </tr>
+        `
+      })
+    }
+
+    // 5. 生成排班
+    async function createSchedule() {
+      const param = {
+        startDate: document.getElementById("startDate").value,
+        slotPerDay: Number(document.getElementById("slotPerDay").value),
+        regularRoomNum: Number(document.getElementById("regularRoomNum").value),
+        labRoomNum: Number(document.getElementById("labRoomNum").value)
+      }
+      if(!param.startDate) return alert("请选择考试起始日期");
+      const res = await request("/schedule/generate", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(param)
+      });
+      document.getElementById("genLog").innerText = res?.msg || "排班生成完毕";
+      const countEl = document.getElementById("schCount");
+      if (countEl && Array.isArray(res?.data)) {
+        countEl.innerText = res.data.length;
+      }
+    }
+
+    // 6. 加载排班视图
+    async function loadSchedule(mode) {
+      const res = await request(`/schedule/view?mode=${mode}`);
+      const box = document.getElementById("scheduleResultBox");
+      const data = res?.data || [];
+
+      if (!Array.isArray(data) || data.length === 0) {
+        box.innerHTML = '<div class="text-gray-400 text-center py-10">暂无排班数据，请先生成排班</div>';
+        return;
+      }
+
+      box.innerHTML = `<pre class="whitespace-pre-wrap p-4 text-sm">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    // 7. 导出CSV/Excel
+    function exportFile() {
+      window.open(`${API_BASE}/schedule/exportCsv`);
+    }
+
+    // 8. 导出备份
+    async function exportBackup() {
+      const res = await request("/data/export", {method:"GET"});
+      if (!res || !res.data) {
+        alert("没有可导出的数据");
+        return;
+      }
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `exam_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      alert("备份已导出");
+    }
+
+    async function restoreBackup() {
+      const fileInput = document.getElementById("backupFile");
+      const file = fileInput.files[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        const payload = JSON.parse(text);
+        const res = await request("/data/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        alert(res?.msg || "恢复成功");
+        refreshDashboard();
+        getStudentList();
+        getSubjectList();
+        getRoomList();
+      } catch (e) {
+        alert("备份文件格式不正确，无法恢复");
+      } finally {
+        fileInput.value = "";
+      }
+    }
+
+    // 9. 清空所有数据
+    async function resetAllData() {
+      showConfirmDialog("确定要清空当前所有学生、科目、考场和排班数据吗？", async () => {
+        const res = await request("/data/reset", {method:"POST"});
+        alert(res?.msg || "数据已清空");
+        refreshDashboard();
+        getStudentList();
+        getSubjectList();
+        getRoomList();
+        document.getElementById("scheduleResultBox").innerHTML = '<div class="text-gray-400 text-center py-10">请选择上方视图加载排班数据</div>';
+      });
+    }
+
+    // 10. 加载模拟测试数据
+    async function loadMockData() {
+      const res = await request("/data/mock", {method:"POST"});
+      alert(res.msg);
+      refreshDashboard();
+    }
+
+    // 页面初始化
+    window.onload = function(){
+      switchPage("dashboard");
+      // 默认日期填充今日
+      const now = new Date();
+      const today = now.toISOString().split("T")[0];
+      document.getElementById("startDate").value = today;
+    }
+  </script>
+</body>
+</html>

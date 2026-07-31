@@ -629,10 +629,8 @@ vector<ScheduleItem> generateSchedule() {
         return {};
     }
 
-    const int DEFAULT_REGULAR_CAPACITY = 90;
-    const int DEFAULT_LAB_CAPACITY = 70;
-    const int MIN_REGULAR_STUDENTS = 40;
-    const int MIN_LAB_STUDENTS = 20;
+    const int DEFAULT_REGULAR_CAPACITY = 50;
+    const int DEFAULT_LAB_CAPACITY = 30;
 
     cout << "\n==========================================" << endl;
     cout << "        Generate Exam Schedule" << endl;
@@ -642,12 +640,12 @@ vector<ScheduleItem> generateSchedule() {
     string startDate;
     getline(cin, startDate);
 
-    cout << "\nEnter number of time slots per day (1-10): ";
+    cout << "\nEnter number of time slots per day (1-4): ";
     int timeSlotsPerDay;
-    while (!(cin >> timeSlotsPerDay) || timeSlotsPerDay < 1 || timeSlotsPerDay > 10) {
+    while (!(cin >> timeSlotsPerDay) || timeSlotsPerDay < 1 || timeSlotsPerDay > 4) {
         cin.clear();
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        cout << "Invalid! Enter 1-10: ";
+        cout << "Invalid! Enter 1-4: ";
     }
 
     cout << "\n=== Exam Rooms ===" << endl;
@@ -690,14 +688,6 @@ vector<ScheduleItem> generateSchedule() {
 
     cout << "\n[LOG] Created " << regularRoomCount << " regular rooms (capacity: " << DEFAULT_REGULAR_CAPACITY << ")" << endl;
     cout << "[LOG] Created " << labRoomCount << " lab rooms (capacity: " << DEFAULT_LAB_CAPACITY << ")" << endl;
-
-    int labSubjectCount = 0;
-    int regularSubjectCount = 0;
-    for (const Subject& sub : subjects) {
-        if (sub.isLabRequired) labSubjectCount++;
-        else regularSubjectCount++;
-    }
-    cout << "[LOG] Found " << labSubjectCount << " lab exam subjects, " << regularSubjectCount << " regular exam subjects" << endl;
 
     vector<Room> regularRooms, labRooms;
     for (const Room& room : rooms) {
@@ -766,49 +756,15 @@ vector<ScheduleItem> generateSchedule() {
         string currentDate(dateBuffer);
 
         map<string, int> roomCount;
-        map<string, vector<string>> roomSubjects;
+        map<string, string> roomSubjectMap;
         for (const Room& room : rooms) {
             roomCount[room.id] = 0;
-            roomSubjects[room.id] = vector<string>();
+            roomSubjectMap[room.id] = "";
         }
 
         bool slotUsed = false;
 
-        vector<string> largeSubjects;
-        vector<string> smallSubjects;
-        
         for (const string& subjectId : sortedSubjects) {
-            if (subjectAssignedTime.find(subjectId) != subjectAssignedTime.end()) continue;
-            
-            auto subIt = find_if(subjects.begin(), subjects.end(),
-                [&](const Subject& sub) { return sub.id == subjectId; });
-            if (subIt == subjects.end()) continue;
-            
-            int capacity = subIt->isLabRequired ? DEFAULT_LAB_CAPACITY : DEFAULT_REGULAR_CAPACITY;
-            int minStudents = subIt->isLabRequired ? MIN_LAB_STUDENTS : MIN_REGULAR_STUDENTS;
-            
-            int count = 0;
-            for (const Student& student : students) {
-                auto it = find(student.subjectIds.begin(), student.subjectIds.end(), subjectId);
-                if (it == student.subjectIds.end()) continue;
-                string key = student.id + "_" + subjectId;
-                if (studentSubjectAssigned[key]) continue;
-                if (studentAssignedTimes[student.id].count(timeSlot)) continue;
-                count++;
-            }
-            
-            if (count >= minStudents) {
-                largeSubjects.push_back(subjectId);
-                cout << "[LOG] Subject " << subIt->name << " (" << (subIt->isLabRequired ? "Lab" : "Regular") 
-                    << ") is large: " << count << " >= " << minStudents << endl;
-            } else if (count > 0) {
-                smallSubjects.push_back(subjectId);
-                cout << "[LOG] Subject " << subIt->name << " (" << (subIt->isLabRequired ? "Lab" : "Regular") 
-                    << ") is small: " << count << " < " << minStudents << endl;
-            }
-        }
-
-        for (const string& subjectId : largeSubjects) {
             if (subjectAssignedTime.find(subjectId) != subjectAssignedTime.end()) continue;
 
             auto subIt = find_if(subjects.begin(), subjects.end(),
@@ -817,11 +773,10 @@ vector<ScheduleItem> generateSchedule() {
 
             bool isLabRequired = subIt->isLabRequired;
             const vector<Room>& targetRooms = isLabRequired ? labRooms : regularRooms;
-            int capacity = isLabRequired ? DEFAULT_LAB_CAPACITY : DEFAULT_REGULAR_CAPACITY;
 
             if (targetRooms.empty()) {
-                cout << "[WARNING] No " << (isLabRequired ? "lab" : "regular") << " rooms for large subject " 
-                    << subIt->name << ", skipping!" << endl;
+                cout << "\nWarning: No " << (isLabRequired ? "lab" : "regular")
+                    << " rooms available for " << subIt->name << "!" << endl;
                 continue;
             }
 
@@ -840,6 +795,7 @@ vector<ScheduleItem> generateSchedule() {
 
             if (availableStudents.empty()) continue;
 
+            int capacity = isLabRequired ? DEFAULT_LAB_CAPACITY : DEFAULT_REGULAR_CAPACITY;
             int roomsNeeded = (static_cast<int>(availableStudents.size()) + capacity - 1) / capacity;
 
             int availableRooms = 0;
@@ -852,37 +808,47 @@ vector<ScheduleItem> generateSchedule() {
             vector<ScheduleItem> tempItems;
             vector<pair<string, string>> tempAssignedStudents;
             map<string, int> tempRoomCount = roomCount;
-            map<string, vector<string>> tempRoomSubjects = roomSubjects;
+            map<string, string> tempRoomSubjectMap = roomSubjectMap;
 
-            int studentIndex = 0;
-            for (const Room& room : targetRooms) {
-                if (studentIndex >= static_cast<int>(availableStudents.size())) break;
-                if (tempRoomCount[room.id] != 0) continue;
+            for (const auto& studentPair : availableStudents) {
+                const string& studentId = studentPair.first;
+                string key = studentId + "_" + subjectId;
 
-                tempRoomSubjects[room.id].push_back(subjectId);
+                bool assigned = false;
 
-                while (studentIndex < static_cast<int>(availableStudents.size()) && 
-                       tempRoomCount[room.id] < room.capacity) {
-                    const auto& studentPair = availableStudents[studentIndex];
-                    const string& studentId = studentPair.first;
-                    string key = studentId + "_" + subjectId;
+                for (const Room& room : targetRooms) {
+                    if (tempRoomCount[room.id] < room.capacity) {
+                        if (tempRoomSubjectMap[room.id].empty()) {
+                            tempRoomSubjectMap[room.id] = subjectId;
+                        }
+                        else if (tempRoomSubjectMap[room.id] != subjectId) {
+                            continue;
+                        }
 
-                    ScheduleItem item;
-                    item.id = generateId("SCH");
-                    item.studentId = studentId;
-                    item.subjectId = subjectId;
-                    item.roomId = room.id;
-                    item.timeSlot = timeSlot;
-                    item.examDate = currentDate;
+                        ScheduleItem item;
+                        item.id = generateId("SCH");
+                        item.studentId = studentId;
+                        item.subjectId = subjectId;
+                        item.roomId = room.id;
+                        item.timeSlot = timeSlot;
+                        item.examDate = currentDate;
 
-                    tempItems.push_back(item);
-                    tempRoomCount[room.id]++;
-                    tempAssignedStudents.push_back(studentPair);
-                    studentIndex++;
+                        tempItems.push_back(item);
+                        tempRoomCount[room.id]++;
+                        tempAssignedStudents.push_back(studentPair);
+                        assigned = true;
+                        break;
+                    }
+                }
+
+                if (!assigned) {
+                    tempItems.clear();
+                    tempAssignedStudents.clear();
+                    break;
                 }
             }
 
-            if (tempItems.size() == availableStudents.size()) {
+            if (!tempItems.empty()) {
                 for (const auto& item : tempItems) {
                     newSchedules.push_back(item);
                 }
@@ -893,212 +859,13 @@ vector<ScheduleItem> generateSchedule() {
                     studentSubjectAssigned[key] = true;
                 }
                 roomCount = tempRoomCount;
-                roomSubjects = tempRoomSubjects;
+                roomSubjectMap = tempRoomSubjectMap;
                 
                 subjectAssignedTime[subjectId] = timeSlot;
                 slotUsed = true;
-                cout << "[LOG] Subject " << subIt->name << " assigned to " << timeSlot 
-                    << " (" << tempItems.size() << " students, " << roomsNeeded << " rooms)" << endl;
+                cout << "[LOG] Subject " << subIt->name << " assigned to " << timeSlot << " (" << tempItems.size() << " students)" << endl;
             }
         }
-
-        vector<pair<string, pair<string, vector<pair<string, string> > > > > pendingRegularSubjects;
-        vector<pair<string, pair<string, vector<pair<string, string> > > > > pendingLabSubjects;
-        
-        for (const string& subjectId : smallSubjects) {
-            if (subjectAssignedTime.find(subjectId) != subjectAssignedTime.end()) continue;
-
-            auto subIt = find_if(subjects.begin(), subjects.end(),
-                [&](const Subject& sub) { return sub.id == subjectId; });
-            if (subIt == subjects.end()) continue;
-
-            bool isLabRequired = subIt->isLabRequired;
-            const vector<Room>& targetRooms = isLabRequired ? labRooms : regularRooms;
-            int capacity = isLabRequired ? DEFAULT_LAB_CAPACITY : DEFAULT_REGULAR_CAPACITY;
-            int minStudents = isLabRequired ? MIN_LAB_STUDENTS : MIN_REGULAR_STUDENTS;
-
-            if (targetRooms.empty()) {
-                cout << "[WARNING] No " << (isLabRequired ? "lab" : "regular") << " rooms for small subject " 
-                    << subIt->name << ", skipping!" << endl;
-                continue;
-            }
-
-            vector<pair<string, string>> availableStudents;
-            for (const Student& student : students) {
-                if (student.subjectIds.empty()) continue;
-                auto it = find(student.subjectIds.begin(), student.subjectIds.end(), subjectId);
-                if (it == student.subjectIds.end()) continue;
-                
-                string key = student.id + "_" + subjectId;
-                if (studentSubjectAssigned[key]) continue;
-                if (studentAssignedTimes[student.id].count(timeSlot)) continue;
-                
-                availableStudents.emplace_back(student.id, student.name);
-            }
-
-            if (availableStudents.empty()) continue;
-
-            bool canAssign = false;
-            string assignedRoomId = "";
-
-            for (const Room& room : targetRooms) {
-                if (roomCount[room.id] > 0 && 
-                    roomCount[room.id] + static_cast<int>(availableStudents.size()) <= room.capacity) {
-                    int newCount = roomCount[room.id] + static_cast<int>(availableStudents.size());
-                    if (newCount >= minStudents) {
-                        canAssign = true;
-                        assignedRoomId = room.id;
-                        break;
-                    }
-                }
-            }
-
-            if (canAssign && !assignedRoomId.empty()) {
-                vector<ScheduleItem> tempItems;
-                vector<pair<string, string>> tempAssignedStudents;
-
-                for (const auto& studentPair : availableStudents) {
-                    const string& studentId = studentPair.first;
-                    string key = studentId + "_" + subjectId;
-
-                    ScheduleItem item;
-                    item.id = generateId("SCH");
-                    item.studentId = studentId;
-                    item.subjectId = subjectId;
-                    item.roomId = assignedRoomId;
-                    item.timeSlot = timeSlot;
-                    item.examDate = currentDate;
-
-                    tempItems.push_back(item);
-                    tempAssignedStudents.push_back(studentPair);
-                }
-
-                for (const auto& item : tempItems) {
-                    newSchedules.push_back(item);
-                }
-                for (const auto& studentPair : tempAssignedStudents) {
-                    const string& studentId = studentPair.first;
-                    string key = studentId + "_" + subjectId;
-                    studentAssignedTimes[studentId].insert(timeSlot);
-                    studentSubjectAssigned[key] = true;
-                }
-                roomCount[assignedRoomId] += static_cast<int>(tempItems.size());
-                
-                auto it = find(roomSubjects[assignedRoomId].begin(), roomSubjects[assignedRoomId].end(), subjectId);
-                if (it == roomSubjects[assignedRoomId].end()) {
-                    roomSubjects[assignedRoomId].push_back(subjectId);
-                }
-                
-                subjectAssignedTime[subjectId] = timeSlot;
-                slotUsed = true;
-                
-                auto roomIt = find_if(rooms.begin(), rooms.end(),
-                    [&](const Room& rm) { return rm.id == assignedRoomId; });
-                string roomName = roomIt != rooms.end() ? roomIt->name : "Unknown";
-                cout << "[LOG] Subject " << subIt->name << " assigned to " << timeSlot 
-                    << " Room " << roomName << " (" << tempItems.size() << " students, mixed)" << endl;
-            } else {
-                if (isLabRequired) {
-                    pendingLabSubjects.emplace_back(subjectId, make_pair(subIt->name, availableStudents));
-                } else {
-                    pendingRegularSubjects.emplace_back(subjectId, make_pair(subIt->name, availableStudents));
-                }
-            }
-        }
-
-        auto assignPendingSubjects = [&](vector<pair<string, pair<string, vector<pair<string, string> > > > >& pending,
-            const vector<Room>& targetRooms, int capacity, int minStudents) {
-            
-            if (pending.empty() || targetRooms.empty()) return;
-
-            vector<string> emptyRooms;
-            for (const Room& room : targetRooms) {
-                if (roomCount[room.id] == 0) {
-                    emptyRooms.push_back(room.id);
-                }
-            }
-
-            if (emptyRooms.empty()) return;
-
-            sort(pending.begin(), pending.end(), [](const auto& a, const auto& b) {
-                return a.second.second.size() > b.second.second.size();
-            });
-
-            for (const string& roomId : emptyRooms) {
-                if (pending.empty()) break;
-
-                vector<pair<string, pair<string, vector<pair<string, string> > > > > toAssign;
-                vector<size_t> toEraseIndices;
-                int totalStudents = 0;
-
-                int idx = 0;
-                for (auto it = pending.begin(); it != pending.end(); ++it, ++idx) {
-                    int subCount = static_cast<int>(it->second.second.size());
-                    if (totalStudents + subCount <= capacity) {
-                        toAssign.push_back(*it);
-                        toEraseIndices.push_back(idx);
-                        totalStudents += subCount;
-                    }
-                }
-
-                bool meetsMin = (totalStudents >= minStudents);
-                bool isLastResort = (pending.size() == static_cast<size_t>(toAssign.size()));
-
-                if (meetsMin || isLastResort) {
-                    for (size_t i = toEraseIndices.size() - 1; i != SIZE_MAX; --i) {
-                        auto eraseIt = pending.begin();
-                        advance(eraseIt, toEraseIndices[i]);
-                        pending.erase(eraseIt);
-                    }
-
-                    if (!meetsMin && isLastResort) {
-                        auto roomIt = find_if(rooms.begin(), rooms.end(),
-                            [&](const Room& rm) { return rm.id == roomId; });
-                        string roomName = roomIt != rooms.end() ? roomIt->name : "Unknown";
-                        cout << "[WARNING] Room " << roomName << " has " << totalStudents 
-                            << " students, below minimum " << minStudents << endl;
-                    }
-
-                    for (const auto& subjectPair : toAssign) {
-                        const string& subjectId = subjectPair.first;
-                        const string& subjectName = subjectPair.second.first;
-                        const vector<pair<string, string> >& studentsForSubject = subjectPair.second.second;
-
-                        for (const auto& studentPair : studentsForSubject) {
-                            const string& studentId = studentPair.first;
-                            string key = studentId + "_" + subjectId;
-
-                            ScheduleItem item;
-                            item.id = generateId("SCH");
-                            item.studentId = studentId;
-                            item.subjectId = subjectId;
-                            item.roomId = roomId;
-                            item.timeSlot = timeSlot;
-                            item.examDate = currentDate;
-
-                            newSchedules.push_back(item);
-                            studentAssignedTimes[studentId].insert(timeSlot);
-                            studentSubjectAssigned[key] = true;
-                        }
-                        roomCount[roomId] += static_cast<int>(studentsForSubject.size());
-                        roomSubjects[roomId].push_back(subjectId);
-                        subjectAssignedTime[subjectId] = timeSlot;
-                        slotUsed = true;
-
-                        auto roomIt = find_if(rooms.begin(), rooms.end(),
-                            [&](const Room& rm) { return rm.id == roomId; });
-                        string roomName = roomIt != rooms.end() ? roomIt->name : "Unknown";
-                        cout << "[LOG] Subject " << subjectName << " assigned to " << timeSlot 
-                            << " Room " << roomName << " (" << studentsForSubject.size() << " students, mixed)" << endl;
-                    }
-                } else {
-                    break;
-                }
-            }
-        };
-
-        assignPendingSubjects(pendingRegularSubjects, regularRooms, DEFAULT_REGULAR_CAPACITY, MIN_REGULAR_STUDENTS);
-        assignPendingSubjects(pendingLabSubjects, labRooms, DEFAULT_LAB_CAPACITY, MIN_LAB_STUDENTS);
 
         slotIdx++;
     }
@@ -1625,17 +1392,7 @@ void importStudentsFromExcel() {
             isLabExamStr = isLabExamStr.substr(0, quotePos);
         }
 
-        bool isLabExam = false;
-        if (isLabExamStr == "1" || isLabExamStr == "yes" || isLabExamStr == "true") {
-            isLabExam = true;
-        } else {
-            unsigned char* p = reinterpret_cast<unsigned char*>(&isLabExamStr[0]);
-            if (isLabExamStr.size() >= 2 && p[0] == 0xCA && p[1] == 0xC7) {
-                isLabExam = true;
-            } else if (isLabExamStr.size() >= 3 && p[0] == 0xE6 && p[1] == 0x98 && p[2] == 0xAF) {
-                isLabExam = true;
-            }
-        }
+        bool isLabExam = (isLabExamStr == "1" || isLabExamStr == "yes" || isLabExamStr == "true");
 
         if (studentId.empty() && name.empty()) {
             skippedLines++;
@@ -1744,37 +1501,11 @@ void exportScheduleToCSV() {
         getline(cin, path);
     }
 
-    if (!path.empty() && path.front() == '\"') {
-        path = path.substr(1);
-    }
-    if (!path.empty() && path.back() == '\"') {
-        path = path.substr(0, path.size() - 1);
-    }
-
-    ofstream file(path, ios::binary);
+    ofstream file(path);
     if (!file.is_open()) {
-        cout << "Cannot create file! path: " << path << endl;
+        cout << "Cannot create file!" << endl;
         return;
     }
-
-    file << "\xEF\xBB\xBF";
-
-    auto gbkToUtf8 = [](const string& gbk) -> string {
-        int len = MultiByteToWideChar(CP_ACP, 0, gbk.c_str(), -1, NULL, 0);
-        if (len == 0) return gbk;
-        wchar_t* wstr = new wchar_t[len];
-        MultiByteToWideChar(CP_ACP, 0, gbk.c_str(), -1, wstr, len);
-        
-        len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
-        if (len == 0) { delete[] wstr; return gbk; }
-        char* utf8 = new char[len];
-        WideCharToMultiByte(CP_UTF8, 0, wstr, -1, utf8, len, NULL, NULL);
-        
-        string result(utf8);
-        delete[] wstr;
-        delete[] utf8;
-        return result;
-    };
 
     file << "SubjectCode,SubjectName,ExamDate,TimeSlot,RoomName,RoomType,StudentID,StudentName,Campus,Department,Major,ClassName,CourseCollege,CourseUnit" << endl;
 
@@ -1787,20 +1518,20 @@ void exportScheduleToCSV() {
             [&](const Student& st) { return st.id == schedule.studentId; });
 
         if (subIt != subjects.end() && roomIt != rooms.end() && studentIt != students.end()) {
-            file << gbkToUtf8(subIt->code) << ","
-                << gbkToUtf8(subIt->name) << ","
-                << gbkToUtf8(schedule.examDate) << ","
-                << gbkToUtf8(schedule.timeSlot) << ","
-                << gbkToUtf8(roomIt->name) << ","
+            file << subIt->code << ","
+                << subIt->name << ","
+                << schedule.examDate << ","
+                << schedule.timeSlot << ","
+                << roomIt->name << ","
                 << (roomIt->type == "lab" ? "Lab" : "Regular") << ","
-                << gbkToUtf8(studentIt->studentId) << ","
-                << gbkToUtf8(studentIt->name) << ","
-                << gbkToUtf8(studentIt->campus) << ","
-                << gbkToUtf8(studentIt->department) << ","
-                << gbkToUtf8(studentIt->major) << ","
-                << gbkToUtf8(studentIt->className) << ","
-                << gbkToUtf8(studentIt->courseCollege) << ","
-                << gbkToUtf8(studentIt->courseUnit) << "\n";
+                << studentIt->studentId << ","
+                << studentIt->name << ","
+                << studentIt->campus << ","
+                << studentIt->department << ","
+                << studentIt->major << ","
+                << studentIt->className << ","
+                << studentIt->courseCollege << ","
+                << studentIt->courseUnit << endl;
         }
     }
 
@@ -1820,13 +1551,11 @@ void exportScheduleToCSV() {
     cout << "[LOG] Excel file will be saved to: " << excelPath << endl;
     cout << "[LOG] Generating Excel file..." << endl;
 
-    ofstream excelFile(excelPath, ios::binary);
+    ofstream excelFile(excelPath);
     if (!excelFile.is_open()) {
         cout << "[ERROR] Cannot create Excel file!" << endl;
         return;
     }
-
-    excelFile << "\xEF\xBB\xBF";
 
     excelFile << "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\" ";
     excelFile << "xmlns:x=\"urn:schemas-microsoft-com:office:excel\">" << endl;
@@ -1842,72 +1571,54 @@ void exportScheduleToCSV() {
     excelFile << "</head>" << endl;
     excelFile << "<body>" << endl;
 
-    map<string, map<string, map<string, vector<const ScheduleItem*>>>> groupedSchedules;
+    excelFile << "<table>" << endl;
+    excelFile << "<tr><th colspan=\"14\">Exam Schedule</th></tr>" << endl;
+    excelFile << "<tr>" << endl;
+    excelFile << "<th>Subject Code</th>" << endl;
+    excelFile << "<th>Subject Name</th>" << endl;
+    excelFile << "<th>Exam Date</th>" << endl;
+    excelFile << "<th>Time Slot</th>" << endl;
+    excelFile << "<th>Room Name</th>" << endl;
+    excelFile << "<th>Room Type</th>" << endl;
+    excelFile << "<th>Student ID</th>" << endl;
+    excelFile << "<th>Student Name</th>" << endl;
+    excelFile << "<th>Campus</th>" << endl;
+    excelFile << "<th>Department</th>" << endl;
+    excelFile << "<th>Major</th>" << endl;
+    excelFile << "<th>Class</th>" << endl;
+    excelFile << "<th>Course College</th>" << endl;
+    excelFile << "<th>Course Unit</th>" << endl;
+    excelFile << "</tr>" << endl;
 
     for (const auto& schedule : schedules) {
-        groupedSchedules[schedule.examDate][schedule.timeSlot][schedule.roomId].push_back(&schedule);
-    }
+        auto subIt = find_if(subjects.begin(), subjects.end(),
+            [&](const Subject& sb) { return sb.id == schedule.subjectId; });
+        auto roomIt = find_if(rooms.begin(), rooms.end(),
+            [&](const Room& rm) { return rm.id == schedule.roomId; });
+        auto studentIt = find_if(students.begin(), students.end(),
+            [&](const Student& st) { return st.id == schedule.studentId; });
 
-    for (const auto& datePair : groupedSchedules) {
-        const string& examDate = datePair.first;
-        
-        for (const auto& timePair : datePair.second) {
-            const string& timeSlot = timePair.first;
-            
-            for (const auto& roomPair : timePair.second) {
-                const string& roomId = roomPair.first;
-                const vector<const ScheduleItem*>& roomSchedules = roomPair.second;
-                
-                auto roomIt = find_if(rooms.begin(), rooms.end(),
-                    [&](const Room& rm) { return rm.id == roomId; });
-                
-                excelFile << "<table>" << endl;
-                excelFile << "<tr><th colspan=\"9\" style=\"background-color:#4472C4;color:white;font-size:14px;padding:10px;\">";
-                excelFile << gbkToUtf8(examDate) << " | " << gbkToUtf8(timeSlot) << " | ";
-                excelFile << (roomIt != rooms.end() ? gbkToUtf8(roomIt->name) : roomId);
-                if (roomIt != rooms.end()) {
-                    excelFile << " (" << (roomIt->type == "lab" ? "Lab" : "Regular") << ")";
-                }
-                excelFile << "</th></tr>" << endl;
-                
-                excelFile << "<tr>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Subject</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Student ID</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Student Name</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Campus</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Department</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Major</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Class</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Course College</th>" << endl;
-                excelFile << "<th style=\"background-color:#D9E1F2;color:#1F4E79;\">Course Unit</th>" << endl;
-                excelFile << "</tr>" << endl;
-
-                for (const ScheduleItem* schedule : roomSchedules) {
-                    auto subIt = find_if(subjects.begin(), subjects.end(),
-                        [&](const Subject& sb) { return sb.id == schedule->subjectId; });
-                    auto studentIt = find_if(students.begin(), students.end(),
-                        [&](const Student& st) { return st.id == schedule->studentId; });
-
-                    if (subIt != subjects.end() && studentIt != students.end()) {
-                        excelFile << "<tr>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(subIt->name) << "</td>" << endl;
-                        excelFile << "<td style=\"mso-number-format:\\#\">" << studentIt->studentId << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->name) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->campus) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->department) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->major) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->className) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->courseCollege) << "</td>" << endl;
-                        excelFile << "<td>" << gbkToUtf8(studentIt->courseUnit) << "</td>" << endl;
-                        excelFile << "</tr>" << endl;
-                    }
-                }
-
-                excelFile << "</table>" << endl;
-                excelFile << "<p>&nbsp;</p>" << endl;
-            }
+        if (subIt != subjects.end() && roomIt != rooms.end() && studentIt != students.end()) {
+            excelFile << "<tr>" << endl;
+            excelFile << "<td>" << subIt->code << "</td>" << endl;
+            excelFile << "<td>" << subIt->name << "</td>" << endl;
+            excelFile << "<td>" << schedule.examDate << "</td>" << endl;
+            excelFile << "<td>" << schedule.timeSlot << "</td>" << endl;
+            excelFile << "<td>" << roomIt->name << "</td>" << endl;
+            excelFile << "<td>" << (roomIt->type == "lab" ? "Lab" : "Regular") << "</td>" << endl;
+            excelFile << "<td>" << studentIt->studentId << "</td>" << endl;
+            excelFile << "<td>" << studentIt->name << "</td>" << endl;
+            excelFile << "<td>" << studentIt->campus << "</td>" << endl;
+            excelFile << "<td>" << studentIt->department << "</td>" << endl;
+            excelFile << "<td>" << studentIt->major << "</td>" << endl;
+            excelFile << "<td>" << studentIt->className << "</td>" << endl;
+            excelFile << "<td>" << studentIt->courseCollege << "</td>" << endl;
+            excelFile << "<td>" << studentIt->courseUnit << "</td>" << endl;
+            excelFile << "</tr>" << endl;
         }
     }
+
+    excelFile << "</table>" << endl;
     excelFile << "</body>" << endl;
     excelFile << "</html>" << endl;
 
