@@ -1,0 +1,10 @@
+{
+  "name": "exam-schedule-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "补考考场安排系统前后端联调后端服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
