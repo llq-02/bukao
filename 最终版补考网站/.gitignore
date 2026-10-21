@@ -1,0 +1,9 @@
+node_modules/
+.dbg/
+*.log
+.DS_Store
+Thumbs.db
+
+/debug-*.md
+/FileName.cpp
+

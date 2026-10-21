@@ -1,6 +1,6 @@
 # 补考考场智能排考系统 · 操作手册
 
-> 访问地址：http://129.204.194.149:8080
+> 访问地址：http://<服务器公网 IP>:8080
 > 推荐浏览器：Chrome / Edge 最新版
 
 ---
@@ -319,3 +319,4 @@ StudentID,Name,Campus,Department,Major,ClassName,CourseCode,CourseName,IsLabExam
 
 ### Q8：导出的 Excel 打开是乱码？
 导出文件为 `.xls` 格式（HTML 表格伪 Excel），用 Microsoft Excel 或 WPS 打开即可。如果用其他软件打开出现乱码，尝试用 Excel 打开后另存为标准 `.xlsx`。
+

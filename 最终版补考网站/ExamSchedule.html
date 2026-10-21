@@ -69,6 +69,9 @@
         <div onclick="exportListFile()" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary">
           <i class="fa fa-list w-5 text-center"></i>导出学生名单
         </div>
+        <div onclick="exportSigninFile()" class="nav-item flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-primary/10 hover:text-primary">
+          <i class="fa fa-check-square-o w-5 text-center"></i>导出签到表
+        </div>
       </div>
       <div class="nav-group mt-4">
         <div class="nav-title text-gray-500 text-xs px-3 py-2">测试工具</div>
@@ -151,7 +154,7 @@
             <i class="fa fa-upload mr-1"></i>上传导入
           </button>
         </div>
-        <div class="mt-3 text-sm text-gray-600" id="uploadLog"></div>
+        <div class="mt-3 text-sm text-gray-600 whitespace-pre-wrap break-words" id="uploadLog"></div>
       </div>
       <div class="bg-white rounded shadow table-wrap">
         <table class="w-full text-sm">
@@ -266,10 +269,14 @@
             <input type="number" min="0" max="200" value="" id="labCapacity" class="border w-full p-2 rounded" placeholder="选填">
           </div>
         </div>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">每个考场每场最多考试科目数 <span class="text-gray-400 text-xs font-normal">（留空或填 0 则不限制；填 1 表示每个考场每场只考一科，可避免同一考场同时混排多门科目）</span></label>
+          <input type="number" min="0" value="" id="maxSubjectsPerRoomSlot" class="border w-full p-2 rounded" placeholder="选填">
+        </div>
         <div class="mb-2 text-xs text-blue-600 bg-blue-50 p-2 rounded">
           提示：如果教室数量/容量都不填，将跳过考场分配，只生成学生名单（可直接导出名单）。
         </div>
-        <button onclick="createSchedule()" class="bg-primary text-white w-full py-3 rounded text-lg hover:bg-primary/90">
+        <button onclick="createSchedule(this)" class="bg-primary text-white w-full py-3 rounded text-lg hover:bg-primary/90">
           <i class="fa fa-cogs mr-2"></i>自动生成排班 / 名单
         </button>
         <div class="mt-4 text-sm text-gray-600" id="genLog"></div>
@@ -413,23 +420,57 @@
       const btn = event.target;
       btn.disabled = true;
       btn.innerText = "上传中...";
-      document.getElementById("uploadLog").innerText = "正在读取文件...";
+      const logDom = document.getElementById("uploadLog");
+      logDom.className = "mt-3 text-sm text-gray-600 whitespace-pre-wrap break-words";
+      logDom.style.color = "";
+      logDom.innerText = "正在读取文件...";
       try {
         const text = await readFileAutoEncoding(file);
-        document.getElementById("uploadLog").innerText = "正在导入...";
+        logDom.innerText = "正在导入...";
         const res = await request("/student/importCsv", {
           method:"POST",
           headers:{"Content-Type":"text/plain;charset=utf-8"},
           body:text
         });
-        document.getElementById("uploadLog").innerText = res?.msg || "导入完成";
+        const count = (res && res.data && typeof res.data.count === 'number') ? res.data.count : null;
+        const diag = (res && res.data && res.data.diagnostic) ? res.data.diagnostic : {};
+        logDom.innerText = res?.msg || "导入完成";
         if (res && res.code === 0) {
-          showToast("导入成功", "success");
+          if (count === 0) {
+            // 导入 0 人：不是成功，给用户明确警告 + 红色日志引起注意
+            logDom.className = "mt-3 text-sm whitespace-pre-wrap break-words font-semibold";
+            logDom.style.color = "#c2410c"; // orange-700
+            showToast("导入了 0 名学生，请检查 CSV 表头和数据", "warn");
+          } else {
+            showToast(`导入成功：${count} 名学生`, "success");
+            // 成功但 CSV 行数 >> 学生数时，把 diagnostic 的详细统计追加到日志（视觉上用浅色小字，不打扰正常成功）
+            const dataRowCount = diag.dataRowCount || 0;
+            const stat = diag.uniqueKeyStats;
+            if (dataRowCount > 0 && count > 0 && stat && dataRowCount / Math.max(count,1) > 3) {
+              const extra = [];
+              extra.push("");
+              extra.push("——— 详细诊断 ———");
+              extra.push(`· CSV 数据行数：${dataRowCount}  →  去重后学生数：${count}`);
+              extra.push(`· 去重唯一值分布：学号(${stat.uniqueStudentIds}) / 姓名(${stat.uniqueNames}) / 班级(${stat.uniqueClasses})`);
+              extra.push(`· 每个学生平均重复 ${stat.rowsPerKeyMean} 行（最高 ${stat.rowsPerKeyMax} 行）`);
+              if (Array.isArray(diag.unmappedHeaders) && diag.unmappedHeaders.length > 0) {
+                extra.push(`· ⚠ CSV 列未识别：${diag.unmappedHeaders.join('、')}（已识别：${(diag.recognizedFields||[]).join('、')||'无'}）`);
+              }
+              if (stat.uniqueStudentIds < Math.min(dataRowCount, 50) && stat.rowsPerKeyMax > 10) {
+                extra.push("· 💡 学号唯一数偏少：极可能是 Excel 将长学号保存为科学计数法(如 2.03E+11)丢失精度。");
+                extra.push("     解决：Excel 选中学号列 → 右键→设置单元格格式→【文本】→ 重新另存为 CSV 再导入。");
+              }
+              logDom.innerText = (res?.msg || "") + extra.join("\n");
+              // 这种"成功但人数严重偏少"需要引起用户注意，用稍深一点的橙色（但比 0 人场景浅）
+              logDom.className = "mt-3 text-sm whitespace-pre-wrap break-words font-semibold";
+              logDom.style.color = "#b45309"; // amber-700
+            }
+          }
         }
         getStudentList();
       } catch(e) {
         showToast("上传失败: " + e.message, "error");
-        document.getElementById("uploadLog").innerText = "上传失败";
+        logDom.innerText = "上传失败";
       } finally {
         btn.disabled = false;
         btn.innerText = "上传导入";
@@ -514,7 +555,13 @@
         body:JSON.stringify(param)
       });
       document.getElementById("roomGenLog").innerText = res?.msg || "操作完成";
-      if (res && res.code === 0) showToast("考场生成成功", "success");
+      if (res && res.code === 0) {
+        showToast("考场生成成功", "success");
+        // 将已保存的考场参数同步到排班表单，避免生成时被默认容量覆盖。
+        Object.entries(param).forEach(([key, value]) => {
+          document.getElementById(key).value = value;
+        });
+      }
       getRoomList();
     }
 
@@ -553,8 +600,37 @@
       return arr;
     }
 
+    function confirmScheduleWarnings(warnings) {
+      return new Promise(resolve => {
+        const previousFocus = document.activeElement;
+        const dialog = document.createElement('dialog');
+        dialog.style.cssText = 'width:min(640px,90vw);max-height:85vh;padding:24px;border-radius:12px;overflow:auto;';
+        dialog.setAttribute('aria-labelledby', 'schedule-warning-title');
+        dialog.innerHTML = '<h2 id="schedule-warning-title" class="text-lg font-bold mb-3">排考安排需要确认</h2><p class="text-sm mb-3">以下安排无法完全满足原设置，请检查后选择。取消将保留原排班。</p><ul class="list-disc pl-5 space-y-2 mb-5"></ul><div class="flex justify-end gap-3"><button type="button" class="border px-4 py-2 rounded">取消</button><button type="button" class="bg-primary text-white px-4 py-2 rounded">继续</button></div>';
+        const list = dialog.querySelector('ul');
+        warnings.forEach(message => {
+          const li = document.createElement('li');
+          li.textContent = message;
+          list.appendChild(li);
+        });
+        const finish = accepted => {
+          dialog.close();
+          dialog.remove();
+          previousFocus?.focus();
+          resolve(accepted);
+        };
+        const buttons = dialog.querySelectorAll('button');
+        buttons[0].onclick = () => finish(false);
+        buttons[1].onclick = () => finish(true);
+        dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        buttons[0].focus();
+      });
+    }
+
     // 5. 生成排班
-    async function createSchedule() {
+    async function createSchedule(btn) {
       const customSlots = collectCustomSlots();
       if (customSlots.length === 0) {
         showToast('请至少设置一个考试时间段', 'warn');
@@ -570,24 +646,36 @@
         regularRoomNum: Number(document.getElementById("regularRoomNum").value),
         labRoomNum: Number(document.getElementById("labRoomNum").value),
         regularCapacity: Number(document.getElementById("regularCapacity").value),
-        labCapacity: Number(document.getElementById("labCapacity").value)
+        labCapacity: Number(document.getElementById("labCapacity").value),
+        maxSubjectsPerRoomSlot: Number(document.getElementById("maxSubjectsPerRoomSlot").value)
       }
       if(!param.startDate) { showToast("请选择考试起始日期", "warn"); return; }
-      const btn = event.target;
       btn.disabled = true;
       btn.innerText = "排班生成中...";
       try {
-        const res = await request("/schedule/generate", {
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(param)
+        const send = () => request("/schedule/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(param)
         });
-        document.getElementById("genLog").innerText = res?.msg || "排班生成完毕";
-        if (res && res.code === 0) showToast("排班生成成功", "success");
-        const countEl = document.getElementById("schCount");
-        if (countEl && Array.isArray(res?.data)) {
-          countEl.innerText = res.data.length;
+        let res = await send();
+        while (res?.requiresConfirmation) {
+          const accepted = await confirmScheduleWarnings(res.warnings || []);
+          if (!accepted) {
+            document.getElementById("genLog").innerText = "已取消生成，原排班保持不变。";
+            return;
+          }
+          param.confirmationToken = res.confirmationToken;
+          res = await send();
         }
+        document.getElementById("genLog").innerText = [res?.msg || "生成失败，请重试", ...(res?.warnings || [])].join('\n');
+        if (res?.code !== 0) {
+          showToast(res?.msg || "生成失败，请重试", "error");
+          return;
+        }
+        showToast("排班生成成功", "success");
+        const countEl = document.getElementById("schCount");
+        if (countEl && Array.isArray(res.data)) countEl.innerText = res.data.length;
       } finally {
         btn.disabled = false;
         btn.innerText = "自动生成排班（校验全部约束）";
@@ -676,14 +764,27 @@
              <strong>当前为「仅名单模式」</strong>：本次生成未设置教室数量和容量，系统已按您填写的考试日期和时间段完成排期（时间列已显示真实日期和时段），只有「考场」列显示为灰色的「待安排」。
              如需分配真实考场，请回到「生成排班」页面填写教室数量和容量后再重新生成。
            </div>`
-        : '';
+        : (!listOnly && (mode === 1 || mode === 2))
+          ? `<div class="mb-4 border-l-4 border-blue-400 bg-blue-50 text-blue-800 px-4 py-3 rounded text-sm">
+               <strong>说明</strong>：为保持「同一科目在同一场次」且「同一学生不在同一时段考两门」，各场人数通常小于教室容量——容量是每场上限，不是必须排满的人数；考试最后一天的时段也可能用不满（剩余考生不足时，未用到的时段不会安排考试）。以上均属正常，并非漏排。
+             </div>`
+          : '';
 
       if (isGrouped) {
         let html = banner;
         data.forEach(group => {
           const sorted = sortByPinyin(group.items);
+          // 人数/容量对照：按教室视图=该教室容量；按时间视图=该时段动用教室的总容量
+          let capText = '';
+          if (!listOnly && (mode === 1 || mode === 2)) {
+            const roomIds = new Set(group.items.map(it => it.roomId).filter(Boolean));
+            const caps = Array.from(roomIds).map(rid => roomMap.get(rid)).filter(Boolean);
+            if (caps.length > 0) {
+              capText = `/容量${caps.reduce((a, r) => a + (r.capacity || 0), 0)}`;
+            }
+          }
           html += `<div class="mb-6">
-            <h3 class="font-bold text-base mb-2 px-2 py-1 bg-blue-50 rounded">${group.key} <span class="text-gray-500 font-normal text-sm">(${sorted.length}人)</span></h3>
+            <h3 class="font-bold text-base mb-2 px-2 py-1 bg-blue-50 rounded">${group.key} <span class="text-gray-500 font-normal text-sm">(${sorted.length}人${capText})</span></h3>
             <table class="w-full text-sm">
               ${tableHeader}
               <tbody>${sorted.map((item, i) => renderRow(item, i)).join('')}</tbody>
@@ -704,6 +805,10 @@
     // 7b. 导出学生名单（平铺单表）
     function exportListFile() {
       window.open(`${API_BASE}/schedule/exportList`);
+    }
+    // 7c. 导出签到表（每个科目一个 sheet）
+    function exportSigninFile() {
+      window.open(`${API_BASE}/schedule/exportSignin`);
     }
 
     // 8. 导出备份
@@ -775,3 +880,4 @@
   </script>
 </body>
 </html>
+

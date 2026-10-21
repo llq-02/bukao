@@ -55,3 +55,4 @@ echo
 echo "如正式使用，推荐用 PM2 常驻并开机自启："
 echo "  sudo npm install -g pm2"
 echo "  pm2 start $APP_DIR/server.js --name exam && pm2 save && pm2 startup systemd"
+

@@ -1,13 +1,12 @@
 # Linux 云服务器部署手册（补考排班系统）
 
 ## 服务器信息
-- 实例：腾讯云轻量应用服务器 **Ubuntu / CentOS**（推荐 Ubuntu 22.04 LTS x86_64）
-- 公网 IP：`129.204.194.149`
-- 登录用户：`root`（或腾讯云创建的自定义用户名）
-- 密码：`213141Panxinai`（如果密钥登录则走 SSH）
+- 实例：你的 Linux 云服务器（推荐 Ubuntu 22.04 LTS x86_64）
+- 公网 IP：部署时填写你自己的服务器地址
+- 登录用户：按服务器配置填写
+- 登录方式：使用 SSH 密钥；不要把密码或私钥写入仓库
 
-> ⚠️ 重要：请在腾讯云控制台 → **重装系统** → 选择 **Ubuntu 22.04 LTS 或 CentOS 7/8 Stream（64 位）**，
-> 把 Windows Server 切换为 Linux；否则以下命令都不适用。
+> 部署前请在云服务商控制台确认服务器系统为 Linux，并使用 SSH 密钥登录。把 Windows Server 切换为 Linux；否则以下命令都不适用。
 
 ---
 
@@ -16,10 +15,10 @@
 在你本地 Windows 打开 PowerShell：
 
 ```
-ssh root@129.204.194.149
+ssh <用户名>@<服务器公网 IP>
 ```
 
-（首次连接输入 `yes`，再输入密码 `213141Panxinai`）
+（首次连接时核对服务器指纹；建议配置 SSH 密钥登录）
 
 ---
 
@@ -53,10 +52,10 @@ node -v
 在**你本地 Windows PowerShell**（不是服务器上）进入项目目录，用 `scp` 上传到服务器：
 
 ```powershell
-cd "C:\Users\LingL\Desktop\新建文件夹"
+cd "C:\Users\LingL\Desktop\最终版补考网站"
 
 # 上传：把 server.js / ExamSchedule.html / tailwind.js / package.json / start.sh 放到服务器 /opt/exam-schedule/
-scp server.js ExamSchedule.html tailwind.js package.json start.sh root@129.204.194.149:/root/
+scp server.js ExamSchedule.html tailwind.js package.json start.sh <用户名>@<服务器公网 IP>:/root/
 ```
 
 （输入密码后会开始拷贝。如果提示「主机真实性无法确认」输入 `yes`）
@@ -107,7 +106,7 @@ cd /opt/exam-schedule
 node server.js
 ```
 看到 `Exam Schedule service is running on http://localhost:8080` 说明正常。
-**本地浏览器** 打开 `http://129.204.194.149:8080`
+**本地浏览器** 打开 `http://<服务器公网 IP>:8080`
 
 ### 方式 B：一键脚本（推荐，等于 A）
 ```bash
@@ -144,7 +143,7 @@ curl -s http://localhost:8080/api/subject/list
 
 在你电脑浏览器打开：
 ```
-http://129.204.194.149:8080
+http://<服务器公网 IP>:8080
 ```
 看到仪表盘，四项都是 `0`，初始状态 ✅
 
@@ -154,13 +153,13 @@ http://129.204.194.149:8080
 
 ## 七、常见问题
 
-### Q1：浏览器访问 `http://129.204.194.149:8080` 连不上？
+### Q1：浏览器访问 `http://<服务器公网 IP>:8080` 连不上？
 - 检查「腾讯云控制台防火墙」是否放行 8080 TCP
 - 检查服务器本机防火墙 `ufw status` 或 `firewall-cmd --list-ports`
 - 检查 Node 进程：`ss -tlnp | grep 8080`（或 `netstat -tlnp | grep 8080`）
 
 ### Q2：端口被占用？
-修改 [server.js](file:///c:/Users/LingL/Desktop/新建文件夹/server.js) 第 6 行 `const PORT = 8080;` 改为其他端口（如 3000、8000），记得同步开放对应防火墙端口。
+修改 `server.js` 第 6 行 `const PORT = 8080;` 改为其他端口（如 3000、8000），记得同步开放对应防火墙端口。
 
 ### Q3：数据重启就没了？
 本项目默认数据保存在**内存**中（`server.js` 里的 `state` 对象），进程重启会清空。如果需要持久化，后续可以加上 SQLite 或 JSON 文件自动保存。
@@ -180,3 +179,4 @@ setcap 'cap_net_bind_service=+ep' $(readlink -f $(which node))
 FileName.cpp:37:2: error: #error "FileName.cpp 是早期 Windows-only 版本，Linux 下请使用同目录 Node.js 版本：node server.js"
 ```
 Linux 下直接用 `node server.js`，功能、性能、可维护性都远超 C++ 版。
+
